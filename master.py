@@ -5,75 +5,123 @@ import numpy as np
 import pandas as pd
 import math
 import time
-import io
 import UDPBind
-X=None
-y=None
+import globals as args
 
-# Datos sinteticos
-torch.manual_seed(42)
-X = torch.randn(1000, 14)
-active_indices = torch.randint(0, 1000, (1000,))
-y = torch.nn.functional.one_hot(active_indices, num_classes=1000).float()
-
-# Conectar
+# conectar
 servidor = UDPBind.MasterServer()
-servidor.start(45000)
+servidor.start(args.UDP_PORT)
 
-# Esperar slaves
-while servidor.getClientsConectedSize() < 10:
-    time.sleep(2)
+while servidor.getClientsConectedSize() < args.NUM_ESCLAVOS:
+    time.sleep(args.TIME_WAIT)
+    print(f"[Maestro] Esperando {servidor.getClientsConectedSize()}/{args.NUM_ESCLAVOS}")
 
-# Cargar CSV
-df = pd.read_csv("./Dataset of Diabetes .csv", header=None, skiprows=1)
+print("[Maestro] Slaves conectados")
 
-# Dividir y guardar CSVs entre el nro de slaves + maestro (los batch sobrantes se quedan en maestro)
-loteSize = len(df) // (10 + 1)
+# cargar csv
+df = pd.read_csv(args.CSV_PATH, header=None, skiprows=1)
 
-# Enviar cada lote de batchs a su slave respectivo
-for i in range(10):
-    pass 
-
-# Lote del maestro
-begin = loteSize * 10
-dfMaster = df.iloc[begin : len(df)]
-maxBatchsSlaves = math.ceil(loteSize / 50)
-
-# Preparar datos maestro
-X_np = dfMaster.iloc[:, :14].values.astype(np.float32)
-y_onehot_np = dfMaster.iloc[:, -3:].values.astype(np.float32)
+X_np = df.iloc[:, :args.INPUT_DIM].values.astype(np.float32)
+y_np = df.iloc[:, -args.NUM_CLASSES:].values.astype(np.float32)
 
 X = torch.tensor(X_np)
-y = torch.tensor(y_onehot_np)
+y = torch.tensor(y_np)
 
-# Crear dataset y dividirlo en training/testing
 dataset = TensorDataset(X, y)
 
-train_size = int(len(dataset))
+train_size = int(0.8 * len(dataset))
 test_size = len(dataset) - train_size
+
 train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-train_loader = DataLoader(train_dataset, batch_size=50, shuffle=True)
-test_loader  = DataLoader(test_dataset,  batch_size=50, shuffle=False)
+df_train = df.iloc[train_dataset.indices]
 
-# Model setup
-# model
+# distribucion dataset
+loteSize = len(df_train) // (args.NUM_ESCLAVOS + 1)
 
-# Training loop
-train_tracker, test_tracker, accuracy_tracker = [], [], []
+for i in range(args.NUM_ESCLAVOS):
+    begin = loteSize * i
+    end = loteSize * (i + 1)
 
-# Evaluation on test set
-# model.eval()
-y_true = []
-y_pred = []
-log_vars_all = []
+    df_slave = df_train.iloc[begin:end]
+    csv_data = df_slave.to_csv(index=False, header=False)
 
-# Entrenamiento
-for epoch in range(1):
+    servidor.sendCSV(csv_data, 99, i)
+
+df_master = df_train.iloc[loteSize * args.NUM_ESCLAVOS:]
+
+X_master = torch.tensor(df_master.iloc[:, :args.INPUT_DIM].values.astype(np.float32))
+y_master = torch.tensor(df_master.iloc[:, -args.NUM_CLASSES:].values.astype(np.float32))
+
+train_dataset = TensorDataset(X_master, y_master)
+
+train_loader = DataLoader(train_dataset, batch_size=args.BATCH_SIZE, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=args.BATCH_SIZE, shuffle=False)
+
+# modelo
+model = args.MulticlassClassifier(
+    input_dim=args.INPUT_DIM,
+    num_classes=args.NUM_CLASSES
+)
+
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=args.LEARNING_RATE)
+
+# training
+for epoch in range(args.NUM_EPOCHS):
+
+    model.train()
+    epoch_loss = 0
+
     for batchIdx, (batch_x, batch_y) in enumerate(train_loader):
 
-        # entrenar batch
+        optimizer.zero_grad()
+        logits, log_vars = model(batch_x)
+        loss = criterion(logits, batch_y)
 
-        if batchIdx < maxBatchsSlaves:
-            # esperar confirmacion, enviar pesos, recibir y promediar pesos
+        loss.backward()
+        optimizer.step()
 
+        epoch_loss += loss.item()
+
+        with torch.no_grad():
+
+            capas = model.getCapas()
+
+            for capaIdx, capa in enumerate(capas):
+
+                weights = capa.weight.data.cpu().numpy()
+                bias = capa.bias.data.cpu().numpy()
+
+                servidor.sendLayer(weights, capaIdx)
+                servidor.sendLayer(bias, capaIdx + 50)
+
+            for capaIdx, capa in enumerate(capas):
+
+                avg_w = servidor.receiveAvgLayer(capaIdx, args.NUM_ESCLAVOS)
+                avg_b = servidor.receiveAvgLayer(capaIdx + 50, args.NUM_ESCLAVOS)
+
+                capa.weight.data.copy_(torch.tensor(avg_w))
+                capa.bias.data.copy_(torch.tensor(avg_b))
+
+        print(f"Epoch {epoch} | Batch {batchIdx} | Loss {loss.item():.4f}")
+
+    print("Epoch loss:", epoch_loss / len(train_loader))
+
+# test
+model.eval()
+
+correct = 0
+total = 0
+
+with torch.no_grad():
+    for x, y in test_loader:
+        logits, _ = model(x)
+
+        preds = torch.argmax(logits, dim=1)
+        labels = torch.argmax(y, dim=1)
+
+        correct += (preds == labels).sum().item()
+        total += y.size(0)
+
+print("Accuracy:", correct / total)
