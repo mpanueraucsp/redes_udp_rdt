@@ -4,7 +4,7 @@ import pybind11
 ext_modules = [
     Extension(
         "UDPBind",
-        ["bindings.cpp"], 
+        ["bindings.cpp", "UDP.cpp", "ACK.cpp"], 
         include_dirs=[pybind11.get_include()],
         language='c++',
         extra_compile_args=['-std=c++11', '-pthread'] 

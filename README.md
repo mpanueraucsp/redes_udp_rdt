@@ -22,11 +22,12 @@ Allows the server to send information to clients.
 | **Type** | 1 Byte | Packet Type (1: packet) |
 | **Number** | 4 Bytes | The packet sequence number |
 | **Size** | 4 Bytes | Total number of characters in the checksum |
-| **Information** | Variable | Checksum information for the data to be sent |
+| **Information**| 1 Byte | Checksum |
 | **Number** | 4 Bytes | Total number of packets |
 | **Number** | 4 Bytes | Packet number |
+| **Number** | 2 Bytes | Number layer |
 | **Size** | 4 Bytes | Size of the data to be sent |
-| **Information** | Variable | Data to be sent |
+| **Information**| Variable| Data to be sent |
 
 
 ### Client &rarr; Server (Request)
@@ -34,14 +35,15 @@ Allows the client to send information to server.
 
 | Field | Size | Description |
 | :--- | :--- | :--- |
-| **Type** | 1 Byte | Packet Type (1: packet) |
+| **Type** | 1 Byte | Packet Type (1: packet, 0: Register) |
 | **Number** | 4 Bytes | The packet sequence number |
 | **Size** | 4 Bytes | Total number of characters in the checksum |
-| **Information** | Variable | Checksum information for the data to be sent |
+| **Information**| 1 Byte | Checksum |
 | **Number** | 4 Bytes | Total number of packets |
 | **Number** | 4 Bytes | Packet number |
+| **Number** | 2 Bytes | Number layer |
 | **Size** | 4 Bytes | Size of the data to be sent |
-| **Information** | Variable | Data to be sent |
+| **Information**| Variable| Data to be sent |
 
 ---
 
@@ -71,22 +73,27 @@ Signals a negative acknowledgment, indicating a corrupted or missing packet.
 
 ## Usage Examples
 
+### Register Client
+```text
+0
+0
+```
 ### Send Information Packets
 ```text
-100010256CHECKSUM000500010004HOLA
-100020256CHECKSUM000500020005PABLO
-100030256CHECKSUM000500030004HOLA
-100040256CHECKSUM000500040004Juan
-100050256CHECKSUM000500050011Informacion
+100010001CHECKSUM00050001010004HOLA
+100020001CHECKSUM00050002010005PABLO
+100030001CHECKSUM00050003010004HOLA
+100040001CHECKSUM00050004010004Juan
+100050001CHECKSUM00050005010011Informacion
 ```
 
-### Send Information Packets
+### ACK
 ```text
 20001
 20002
 ```
 
-### Send Information Packets
+### NACK
 ```text
 30001
 30002
