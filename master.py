@@ -1,4 +1,3 @@
-# Commented out IPython magic to ensure Python compatibility.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
