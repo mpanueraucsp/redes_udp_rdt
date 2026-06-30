@@ -1,4 +1,3 @@
-# Commented out IPython magic to ensure Python compatibility.
 import sys
 import os
 import io
